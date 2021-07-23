@@ -1,6 +1,10 @@
 package mr
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"strconv"
+)
 import "log"
 import "net/rpc"
 import "hash/fnv"
@@ -32,6 +36,35 @@ func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
 	// Your worker implementation here.
+
+	//使用 pid 作为 WorkID
+	WorkerID := strconv.Itoa(os.Getpid())
+
+	var lastTaskType string
+	var lastTaskNum int
+	//进入循环，向 Coordinator 申请 task
+	for {
+		args := TaskArgs {
+			WorkerID: WorkerID,
+			LastTaskType: lastTaskType,
+			LastTaskNum: lastTaskNum,
+		}
+		reply := TaskReply{}
+		call("Coordinator.Run", &args, &reply)
+		//判断退出
+		//reply.TaskType 为空，说明 Run 已经关闭
+		if reply.TaskType == "" {
+			fmt.Println(fmt.Sprintf("Worker %v close", WorkerID))
+			break
+		}
+
+		//MR处理
+		if reply.TaskType == "M" {
+
+		} else if reply.TaskType == "R" {
+
+		}
+	}
 
 	// uncomment to send the Example RPC to the coordinator.
 	// CallExample()
