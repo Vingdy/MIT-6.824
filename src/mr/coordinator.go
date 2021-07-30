@@ -138,9 +138,9 @@ func (c *Coordinator) Run(args *TaskArgs, reply *TaskReply) error {
 	//之前已经有 Task 运行过了
 	if args.LastTaskStatus != 0 {
 		//正常运行
+		c.lock.Lock()
+		lastTaskID := GenID(args.LastTaskType, args.LastTaskNum)
 		if args.LastTaskStatus == 1 {
-			c.lock.Lock()
-			lastTaskID := GenID(args.LastTaskType, args.LastTaskNum)
 			//判断是否已分配且分配ID一致，
 			if task, exist := c.task[lastTaskID]; exist && task.AllocatedWorkerID == args.WorkerID {
 				fmt.Println(fmt.Sprintf("finish WorkID %v", task.AllocatedWorkerID))
