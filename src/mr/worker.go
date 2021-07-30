@@ -2,13 +2,13 @@ package mr
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"strconv"
 )
 import "log"
 import "net/rpc"
 import "hash/fnv"
-
 
 //
 // Map functions return a slice of KeyValue.
@@ -28,7 +28,6 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
-
 //
 // main/mrworker.go calls this function.
 //
@@ -42,33 +41,80 @@ func Worker(mapf func(string, string) []KeyValue,
 
 	var lastTaskType string
 	var lastTaskNum int
+	var lastTaskStatus int
 	//进入循环，向 Coordinator 申请 task
 	for {
-		args := TaskArgs {
-			WorkerID: WorkerID,
-			LastTaskType: lastTaskType,
-			LastTaskNum: lastTaskNum,
+		args := TaskArgs{
+			WorkerID:       WorkerID,
+			LastTaskType:   lastTaskType,
+			LastTaskNum:    lastTaskNum,
+			LastTaskStatus: lastTaskStatus,
 		}
 		reply := TaskReply{}
 		call("Coordinator.Run", &args, &reply)
 		//判断退出
 		//reply.TaskType 为空，说明 Run 已经关闭
-		if reply.TaskType == "" {
-			fmt.Println(fmt.Sprintf("Worker %v close", WorkerID))
+		if reply.CoordinatorStatus == "" {
+			fmt.Println(fmt.Sprintf("Worker %v reviced sign", WorkerID))
 			break
 		}
 
+		lastTaskNum = reply.TaskNum
+		lastTaskType = reply.TaskType
+
 		//MR处理
 		if reply.TaskType == "M" {
-
+			if err := mapHandle(WorkerID, &reply, mapf); err != nil {
+				lastTaskStatus = 2
+				fmt.Println(fmt.Sprintf("workID %v mapHandle error: %v", WorkerID, err))
+			} else {
+				lastTaskStatus = 1
+			}
 		} else if reply.TaskType == "R" {
 
+		} else {
+			lastTaskStatus = 2
 		}
 	}
 
+	fmt.Println(fmt.Sprintf("Worker %v close", WorkerID))
 	// uncomment to send the Example RPC to the coordinator.
 	// CallExample()
 
+}
+
+func mapHandle(id string, reply *TaskReply, mapf func(string, string) []KeyValue) error {
+	file, err := os.Open(reply.TaskInputFile)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	content, err := ioutil.ReadAll(file)
+	if err != nil {
+		return err
+	}
+	//生成kv结果
+	allKv := mapf(reply.TaskInputFile, string(content))
+	hashedKv := make(map[int][]KeyValue)
+	//所有kv分桶
+	for _, kv := range allKv {
+		hashNum := ihash(kv.Key) % reply.CoordinatorReduceNum
+		hashedKv[hashNum] = append(hashedKv[hashNum], kv)
+	}
+	//中间文件生成
+	for i := 0; i < reply.CoordinatorReduceNum; i++ {
+		ofile, _ := os.Create(tmpMapOutFile(id, reply.TaskNum, i))
+		for _, kv := range allKv {
+			fmt.Fprintf(ofile, "%v\t%v\n", kv.Key, kv.Value)
+		}
+		ofile.Close()
+	}
+	return nil
+}
+
+func reduceHandle(id string, reply *TaskReply, reducef func(string, []string) string) error {
+
+	return nil
 }
 
 //

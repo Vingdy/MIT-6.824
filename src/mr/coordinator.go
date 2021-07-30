@@ -27,6 +27,7 @@ type Task struct {
 	TaskType  string
 	TaskNum   int
 	InputFile string
+	Status    int //0,1判断执行情况
 
 	AllocatedWorkerID string
 	TaskDeadline      time.Time
@@ -92,6 +93,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 			TaskType:  "M",
 			TaskNum:   i,
 			InputFile: file,
+			Status:    0,
 		}
 		c.task[GenID(task.TaskType, task.TaskNum)] = task
 		c.allocTask <- task
@@ -112,27 +114,29 @@ func GenID(t string, num int) string {
 
 type TaskArgs struct {
 	//主要用于判断上一次 Task 运行情况
-	LastTaskType string
-	LastTaskNum  int
+	LastTaskType   string
+	LastTaskNum    int
+	LastTaskStatus int
 
 	WorkerID string
 }
 
 type TaskReply struct {
 	//记录当前 Task 相关数据
-	TaskType  string
-	TaskNum   int
-	InputFile string
+	TaskType      string
+	TaskNum       int
+	TaskInputFile string
 
 	//记录总 MR 相关数据
-	Map    int
-	Reduce int
+	CoordinatorStatus    string
+	CoordinatorMapNum    int
+	CoordinatorReduceNum int
 }
 
 //简单 rpc， 准备好内容放置到 args 和 reply 后返回请求方
 func (c *Coordinator) Run(args *TaskArgs, reply *TaskReply) error {
 	//之前已经有 Task 运行过了
-	if args.LastTaskType != "" {
+	if args.LastTaskStatus != 0 {
 
 	}
 
@@ -157,9 +161,10 @@ func (c *Coordinator) Run(args *TaskArgs, reply *TaskReply) error {
 	//放置响应数据
 	reply.TaskType = task.TaskType
 	reply.TaskNum = task.TaskNum
-	reply.InputFile = task.InputFile
-	reply.Map = c.nMap
-	reply.Reduce = c.nReduce
+	reply.TaskInputFile = task.InputFile
+	reply.CoordinatorMapNum = c.nMap
+	reply.CoordinatorReduceNum = c.nReduce
+	reply.CoordinatorStatus = c.status
 
 	return nil
 }
