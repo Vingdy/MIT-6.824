@@ -108,8 +108,8 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	return &c
 }
 
-func GenID(t string, num int) string {
-	return fmt.Sprintf("task-%v-%v", t, num)
+func GenID(tpe string, num int) string {
+	return fmt.Sprintf("task-%v-%v", tpe, num)
 }
 
 type TaskArgs struct {
@@ -137,7 +137,32 @@ type TaskReply struct {
 func (c *Coordinator) Run(args *TaskArgs, reply *TaskReply) error {
 	//之前已经有 Task 运行过了
 	if args.LastTaskStatus != 0 {
+		//正常运行
+		if args.LastTaskStatus == 1 {
+			c.lock.Lock()
+			lastTaskID := GenID(args.LastTaskType, args.LastTaskNum)
+			//判断是否已分配且分配ID一致，
+			if task, exist := c.task[lastTaskID]; exist && task.AllocatedWorkerID == args.WorkerID {
+				fmt.Println(fmt.Sprintf("finish WorkID %v", task.AllocatedWorkerID))
+				if args.LastTaskType == "M" {
+					for i := 0; i < c.nReduce; i++ {
+						err := os.Rename(
+							tmpMapOutFile(args.WorkerID, args.LastTaskNum, i),
+							finalMapOutFile(args.LastTaskNum, i))
+						if err != nil {
+							log.Fatalf(
+								"Failed to mark map output file `%s` as final: %e",
+								tmpMapOutFile(args.WorkerID, args.LastTaskNum, i), err)
+						}
+					}
+				} else if args.LastTaskType == "R" {
 
+				}
+			}
+		} else {
+
+		}
+		c.lock.Unlock()
 	}
 
 	//查看还有无待分配任务
