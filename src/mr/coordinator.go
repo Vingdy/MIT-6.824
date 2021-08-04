@@ -40,7 +40,7 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 }
 
 
-//
+//c
 // start a thread that listens for RPCs from worker.go
 //
 func (c *Coordinator) server() {
