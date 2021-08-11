@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"sort"
 	"strconv"
+	"strings"
 )
 import "log"
 import "net/rpc"
@@ -18,6 +20,10 @@ type KeyValue struct {
 	Value string
 }
 
+type ByKey []KeyValue
+func (a ByKey) Len() int           { return len(a) }
+func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 //
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
@@ -113,6 +119,54 @@ func mapHandle(id string, reply *TaskReply, mapf func(string, string) []KeyValue
 }
 
 func reduceHandle(id string, reply *TaskReply, reducef func(string, []string) string) error {
+	var lines []string
+	for i := 0; i < reply.CoordinatorMapNum; i++ {
+		inputFile := finalMapOutFile(i, reply.TaskNum)
+		file, err := os.Open(inputFile)
+		if err != nil {
+			fmt.Sprintf("Fail to open file %v, err %v \n", inputFile, err)
+			return err
+		}
+		content, err := ioutil.ReadAll(file)
+		if err != nil {
+			fmt.Sprintf("Fail to read file %v, err %v \n", inputFile, err)
+			return err
+		}
+		lines = append(lines, strings.Split(string(content), "\n")...)
+	}
+	var kv []KeyValue
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		kv = append(kv, KeyValue{
+			Key: parts[0],
+			Value: parts[1],
+		})
+	}
+
+	sort.Sort(ByKey(kv))
+
+	ofile, _ := os.Create(tmpReduceOutFile(id, reply.TaskNum))
+
+	i := 0
+	for i < len(kv) {
+		j := i + 1
+		for j < len(kv) && kv[j].Key == kv[i].Key {
+			var values []string
+			for k := i; k < j; k++ {
+				values = append(values, kv[k].Value)
+			}
+			output := reducef(kv[i].Key, values)
+
+			// 写出至结果文件
+			fmt.Fprintf(ofile, "%v %v\n", kv[i].Key, output)
+
+			i = j
+		}
+		ofile.Close()
+	}
 
 	return nil
 }
@@ -147,7 +201,7 @@ func CallExample() {
 //
 func call(rpcname string, args interface{}, reply interface{}) bool {
 	// c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":1234")
-	sockname := coordinatorSock()
+	sockname := coordinatorSock	()
 	c, err := rpc.DialHTTP("unix", sockname)
 	if err != nil {
 		log.Fatal("dialing:", err)

@@ -40,10 +40,10 @@ type Task struct {
 //
 // the RPC argument and reply types are defined in rpc.go.
 //
-func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
-	reply.Y = args.X + 1
-	return nil
-}
+//func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
+//	reply.Y = args.X + 1
+//	return nil
+//}
 
 // start a thread that listens for RPCs from worker.go
 //
@@ -65,11 +65,11 @@ func (c *Coordinator) server() {
 // if the entire job has finished.
 //
 func (c *Coordinator) Done() bool {
-	ret := false
-
+	//return true
 	// Your code here.
-
-	return ret
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return c.status == ""
 }
 
 //
@@ -103,6 +103,21 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c.server()
 
 	//Task 回收
+	go func() {
+		for {
+			time.Sleep(500*time.Millisecond)
+			c.lock.Lock()
+
+			for _, task := range c.task {
+				if task.AllocatedWorkerID != "" && time.Now().After(task.TaskDeadline) {
+					fmt.Sprintf("Found Time-out task, workID %d \n", task.AllocatedWorkerID)
+					task.AllocatedWorkerID = ""
+					c.allocTask <- task
+				}
+			}
+			c.lock.Unlock()
+		}
+	}()
 
 	return &c
 }
@@ -155,12 +170,23 @@ func (c *Coordinator) Run(args *TaskArgs, reply *TaskReply) error {
 						}
 					}
 				} else if args.LastTaskType == "R" {
-
+					err := os.Rename(
+						tmpReduceOutFile(args.WorkerID, args.LastTaskNum),
+						finalReduceOutFile(args.LastTaskNum))
+					if err != nil {
+						log.Fatalf(
+							"Failed to mark reduce output file `%s` as final: %e",
+							tmpReduceOutFile(args.WorkerID, args.LastTaskNum), err)
+					}
 				}
 			}
-		} else {
-
 		}
+
+		delete(c.task, lastTaskID)
+		if len(c.task) == 0 {
+			c.transit()
+		}
+
 		c.lock.Unlock()
 	}
 
@@ -191,4 +217,24 @@ func (c *Coordinator) Run(args *TaskArgs, reply *TaskReply) error {
 	reply.CoordinatorStatus = c.status
 
 	return nil
+}
+
+func (c *Coordinator) transit() {
+	if c.status == "M" {
+		fmt.Println("All MAP tasks is finished")
+		c.status = "R"
+
+		for i := 0; i < c.nReduce; i++ {
+			reduceTask := Task{
+				TaskType: "R",
+				TaskNum:i,
+			}
+			c.task[GenID(reduceTask.TaskType, reduceTask.TaskNum)] = reduceTask
+			c.allocTask <- reduceTask
+		}
+	} else if c.status == "R" {
+		fmt.Println("All REDUCE tasks is finish")
+		close(c.allocTask)
+		c.status = "F"
+	}
 }
